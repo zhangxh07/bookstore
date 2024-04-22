@@ -5,6 +5,7 @@ import (
 	"bookstore/store"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -97,6 +98,8 @@ func (bs *BookStoreServer) getBookHandler(w http.ResponseWriter, req *http.Reque
 		http.Error(w, "no id found in request", http.StatusBadRequest)
 		return
 	}
+
+	fmt.Printf("id: %v\n", id)
 
 	book, err := bs.s.Get(id)
 	if err != nil {

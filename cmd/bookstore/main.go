@@ -3,6 +3,7 @@ package main
 import (
 	_ "bookstore/internal/store"
 	"bookstore/server"
+	"bookstore/store/conf"
 	"bookstore/store/factory"
 	"context"
 	"log"
@@ -13,12 +14,17 @@ import (
 )
 
 func main() {
+
+	_, err := conf.LoadConfigFromToml()
+
 	s, err := factory.New("mem")
 	if err != nil {
 		panic(err)
 	}
 
 	srv := server.NewBookStoreServer(":8080", s)
+	//初始化mongo db
+	s.Init()
 
 	errChan, err := srv.ListenAndServe()
 	if err != nil {

@@ -2,7 +2,13 @@ package store
 
 import (
 	mystore "bookstore/store"
+	"bookstore/store/conf"
 	factory "bookstore/store/factory"
+	"context"
+	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"log"
 	"sync"
 )
 
@@ -12,90 +18,137 @@ func init() {
 	})
 }
 
+var (
+	ctx = context.Background()
+)
+
 type MemStore struct {
 	sync.RWMutex
 	books map[string]*mystore.Book
+	col   *mongo.Collection
+}
+
+func (ms *MemStore) Init() error {
+	// 补充Mongo依赖
+	db, err := conf.C().MongoDB.GetDB()
+	if err != nil {
+		panic(err)
+	}
+	ms.col = db.Collection("bookstore")
+	return nil
 }
 
 // Create creates a new Book in the store.
 func (ms *MemStore) Create(book *mystore.Book) error {
-	ms.Lock()
-	defer ms.Unlock()
+	//ms.Lock()
+	//defer ms.Unlock()
+	//
+	//if _, ok := ms.books[book.Id]; ok {
+	//	return mystore.ErrExist
+	//}
+	//
+	////nBook := *book
+	////ms.books[book.Id] = &nBook
+	//ms.books[book.Id] = book
 
-	if _, ok := ms.books[book.Id]; ok {
-		return mystore.ErrExist
+	_, err := ms.col.InsertOne(ctx, book)
+	if err != nil {
+		return err
 	}
-
-	//nBook := *book
-	//ms.books[book.Id] = &nBook
-	ms.books[book.Id] = book
-
 	return nil
 }
 
 // Update updates the existed Book in the store.
 func (ms *MemStore) Update(book *mystore.Book) error {
-	ms.Lock()
-	defer ms.Unlock()
-
-	oldBook, ok := ms.books[book.Id]
-	if !ok {
+	_, err := ms.Get(book.Id)
+	if err != nil {
 		return mystore.ErrNotFound
 	}
+	res, err := ms.col.UpdateOne(ctx, bson.D{{"id", book.Id}}, bson.D{{"$set", bson.M{
+		"name":    book.Name,
+		"authors": book.Authors,
+		"press":   book.Press,
+	}}})
 
-	nBook := *oldBook
-	if book.Name != "" {
-		nBook.Name = book.Name
+	if err != nil {
+		return err
 	}
-
-	if book.Authors != nil {
-		nBook.Authors = book.Authors
-	}
-
-	if book.Press != "" {
-		nBook.Press = book.Press
-	}
-
-	ms.books[book.Id] = &nBook
+	log.Println(res)
 
 	return nil
 }
 
 // Get retrieves a book from the store, by id. If no such id exists. an
 // error is returned.
-func (ms *MemStore) Get(id string) (mystore.Book, error) {
-	ms.RLock()
-	defer ms.RUnlock()
+func (ms *MemStore) Get(id string) (*mystore.Book, error) {
+	//ms.RLock()
+	//defer ms.RUnlock()
+	//
+	//t, ok := ms.books[id]
+	//if ok {
+	//	return *t, nil
+	//}
+	//return mystore.Book{}, mystore.ErrNotFound
 
-	t, ok := ms.books[id]
-	if ok {
-		return *t, nil
+	ins := &mystore.Book{}
+	err := ms.col.FindOne(ctx, bson.M{"id": id}).Decode(ins)
+	fmt.Printf("ins: %v\n", ins)
+	if err != nil {
+		fmt.Printf("err: %v\n", err)
+		return nil, mystore.ErrNotFound
 	}
-	return mystore.Book{}, mystore.ErrNotFound
+	return ins, nil
 }
 
 // Delete deletes the book with the given id. If no such id exist. an error
 // is returned.
 func (ms *MemStore) Delete(id string) error {
-	ms.Lock()
-	defer ms.Unlock()
-
-	if _, ok := ms.books[id]; !ok {
+	//ms.Lock()
+	//defer ms.Unlock()
+	//
+	//if _, ok := ms.books[id]; !ok {
+	//	return mystore.ErrNotFound
+	//}
+	//
+	//delete(ms.books, id)
+	//return nil
+	ins, err := ms.Get(id)
+	if err != nil {
 		return mystore.ErrNotFound
 	}
+	res, err := ms.col.DeleteOne(ctx, bson.M{"id": ins.Id})
+	if err != nil {
+		return err
+	}
+	log.Printf("delete result: %v\n", res)
 
-	delete(ms.books, id)
 	return nil
 }
 
 // GetAll returns all the books in the store, in arbitrary order.
 func (ms *MemStore) GetAll() ([]mystore.Book, error) {
-	ms.RLock()
-	defer ms.RUnlock()
-
-	allBooks := make([]mystore.Book, 0, len(ms.books))
-	for _, book := range ms.books {
-		allBooks = append(allBooks, *book)
+	//ms.RLock()
+	//defer ms.RUnlock()
+	//
+	//allBooks := make([]mystore.Book, 0, len(ms.books))
+	//for _, book := range ms.books {
+	//	allBooks = append(allBooks, *book)
+	//}
+	//return allBooks, nil
+	filter := bson.M{}
+	res, err := ms.col.Find(ctx, filter)
+	if err != nil {
+		return nil, err
 	}
-	return allBooks, nil
+
+	set := []mystore.Book{}
+	for res.Next(ctx) {
+		ins := &mystore.Book{}
+		err = res.Decode(ins)
+		if err != nil {
+			return nil, err
+		}
+		set = append(set, *ins)
+	}
+	return set, err
 }
